@@ -1,7 +1,7 @@
 import os
+import base64
 from flask import Flask, render_template, request, jsonify
-from google import genai
-from google.genai import types
+from groq import Groq
 from pypdf import PdfReader
 
 app = Flask(__name__)
@@ -16,12 +16,12 @@ SYSTEM_INSTRUCTION = """أنت مساعد ذكاء اصطناعي متكامل �
 6. المساعدة المفتوحة: إذا طلب المستخدم الكود كاملاً وطريقة كتابته، أعطه الكود الصحيح كاملاً واشرح كل سطر فيه بالتفصيل."""
 
 def get_client():
-    api_key = os.environ.get("GEMINI_API_KEY")
+    api_key = os.environ.get("GROQ_API_KEY")
     if not api_key and os.path.exists("api_key.txt"):
         with open("api_key.txt", "r", encoding="utf-8") as f:
             api_key = f.read().strip()
     if api_key:
-        return genai.Client(api_key=api_key)
+        return Groq(api_key=api_key)
     return None
 
 def read_pdf(filepath):
@@ -36,11 +36,12 @@ def index():
 def chat():
     client = get_client()
     if not client:
-        return jsonify({'reply': '⚠️ مفتاح GEMINI_API_KEY غير مضاف في إعدادات السيرفر.'})
+        return jsonify({'reply': '⚠️ مفتاح GROQ_API_KEY غير مضاف في إعدادات السيرفر.'})
 
     user_message = request.form.get('message', '').strip()
     file = request.files.get('file')
-    contents = []
+    image_base64 = None
+    mime_type = "image/jpeg"
 
     if file and file.filename:
         os.makedirs('/tmp/uploads', exist_ok=True)
@@ -50,9 +51,11 @@ def chat():
 
         if ext.endswith(('.png', '.jpg', '.jpeg', '.webp')):
             with open(filepath, 'rb') as f:
-                img_bytes = f.read()
-            mime = 'image/png' if ext.endswith('.png') else 'image/jpeg'
-            contents.append(types.Part.from_bytes(data=img_bytes, mime_type=mime))
+                image_base64 = base64.b64encode(f.read()).decode('utf-8')
+            if ext.endswith('.png'):
+                mime_type = 'image/png'
+            elif ext.endswith('.webp'):
+                mime_type = 'image/webp'
             if not user_message:
                 user_message = "اشرح محتوى هذه الصورة بالتفصيل، وإذا كانت تحتوي على كود أو خطأ فاشرحه وطريقة حله."
         elif ext.endswith('.pdf'):
@@ -63,23 +66,41 @@ def chat():
                 file_text = f.read()
             user_message += f"\n\n[محتوى الملف ({file.filename})]:\n{file_text[:25000]}"
 
-    if not user_message and not contents:
+    if not user_message and not image_base64:
         return jsonify({'reply': 'يرجى كتابة رسالة أو إرفاق ملف أو صورة.'})
 
-    contents.append(user_message)
-
     try:
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_INSTRUCTION,
-            )
+        if image_base64:
+            model_name = "meta-llama/llama-4-scout-17b-16e-instruct"
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": f"{SYSTEM_INSTRUCTION}\n\nطلب المستخدم: {user_message}"},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{mime_type};base64,{image_base64}"}
+                        }
+                    ]
+                }
+            ]
+        else:
+            model_name = "llama-3.3-70b-versatile"
+            messages = [
+                {"role": "system", "content": SYSTEM_INSTRUCTION},
+                {"role": "user", "content": user_message}
+            ]
+
+        chat_completion = client.chat.completions.create(
+            messages=messages,
+            model=model_name,
+            temperature=0.6,
         )
-        return jsonify({'reply': response.text})
+        return jsonify({'reply': chat_completion.choices[0].message.content})
     except Exception as e:
-        return jsonify({'reply': f'حدث خطأ أثناء الاتصال بـ Gemini: {str(e)}'})
+        return jsonify({'reply': f'حدث خطأ أثناء الاتصال بـ Groq: {str(e)}'})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
+
