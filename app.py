@@ -71,7 +71,7 @@ def chat():
 
     try:
         if image_base64:
-            model_name = "meta-llama/llama-4-scout-17b-16e-instruct"
+            model_name = "qwen/qwen3.8-27b"
             messages = [
                 {
                     "role": "user",
@@ -85,7 +85,7 @@ def chat():
                 }
             ]
         else:
-            model_name = "llama-3.3-70b-versatile"
+            model_name = "openai/gpt-oss-120b"
             messages = [
                 {"role": "system", "content": SYSTEM_INSTRUCTION},
                 {"role": "user", "content": user_message}
@@ -103,4 +103,5 @@ def chat():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
+
 
