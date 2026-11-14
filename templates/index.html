@@ -82,9 +82,14 @@
             try {
                 const res = await fetch('/chat', { method: 'POST', body: fd });
                 const data = await res.json();
-                document.getElementById(loadId).innerHTML = marked.parse(data.reply);
+                const el = document.getElementById(loadId);
+                if (typeof marked !== 'undefined') {
+                    el.innerHTML = marked.parse(data.reply);
+                } else {
+                    el.innerText = data.reply;
+                }
             } catch (e) {
-                document.getElementById(loadId).innerText = 'حدث خطأ في الاتصال بالخادم.';
+                document.getElementById(loadId).innerText = 'حدث خطأ: ' + e.message;
             }
             fileInp.value = '';
             document.getElementById('fileName').innerText = '';
@@ -93,3 +98,4 @@
     </script>
 </body>
 </html>
+
